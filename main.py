@@ -9,10 +9,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import SGD
 
-torch.set_default_device('cuda')
+torch.set_default_device('cpu')
 
 
-cred = credentials.Certificate("adminKey.json")
+cred = credentials.Certificate("adminkey.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
@@ -22,9 +22,10 @@ testDf = []
 doc = []
 testDoc = []
 
-includeOnly = ['baoren']
 
-activities = ['walk', 'run', 'jump']
+includeOnly = ['Stephen']
+
+activities = ['walk']
 for person in db.collection("training").stream():
     person = str(person.to_dict()['name'])
     if person not in includeOnly:
@@ -122,7 +123,7 @@ class NeuralNet(nn.Module):
         return x.squeeze()
 
 
-f = NeuralNet().to("cuda")
+f = NeuralNet().to("cpu")
 
 
 def train_model(n_epochs=20):
@@ -178,17 +179,16 @@ model = torch.jit.script(f)
 model.save('saved_model.pt')
 
 
-# def showGraph():
-#     for i in range(len(doc)):
-#         plt.figure(i)
-#         plt.plot(df[i]["time"], df[i]["x"], label="X axis")
-#         plt.plot(df[i]["time"], df[i]["y"], label="Y axis")
-#         plt.plot(df[i]["time"], df[i]["z"], label="Z axis")
-#         plt.plot(df[i]["time"], np.sqrt(df[i]["x"]**2+df[i]["y"]**2+df[i]['z']**2), label="Magnitude")
-#         plt.title(f"{docNames[i]} ({doc[i]['activity']})")
-#         plt.xlabel("Time (ms)")
-#         plt.ylabel("Acceleration (g)")
-#         plt.legend()
-#     plt.show()
-#
-# showGraph()
+def showGraph():
+    for i in range(len(doc)):
+        plt.figure(i)
+        plt.plot(df[i]["time"], df[i]["x"], label="X axis")
+        plt.plot(df[i]["time"], df[i]["y"], label="Y axis")
+        plt.plot(df[i]["time"], df[i]["z"], label="Z axis")
+        plt.plot(df[i]["time"], np.sqrt(df[i]["x"]**2+df[i]["y"]**2+df[i]['z']**2), label="Magnitude")
+        plt.title(f"({doc[i]['activity']})")
+        plt.xlabel("Time (ms)")
+        plt.ylabel("Acceleration (g)")
+        plt.legend()
+    plt.show()
+showGraph()
