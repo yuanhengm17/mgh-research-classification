@@ -2,108 +2,140 @@ import firebase_admin
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from firebase_admin import credentials
-from firebase_admin import firestore
+from firebase_admin import credentials, firestore
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import SGD
 
+# Set device to CPU
 torch.set_default_device('cpu')
 
-
+# Initialize Firebase
 cred = credentials.Certificate("adminkey.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
+# Initialize lists to store data
 df = []
 testDf = []
 
 doc = []
 testDoc = []
 
+# Specify the people to include
+includeOnly = ['Stephen', 'Ren', 'Ethan Shao', 'Jerry', 'Lillian', 'Michael He', 'Sophia', 'Xin', 'Yuanheng']  # Update as needed
 
-includeOnly = ['Stephen']
+# Update the activities list with all possible activities
+activities = ['walk', 'run', 'jump', 'sit', 'upstair']  # Define your activities here
+num_classes = len(activities)  # Number of output classes matches the number of activities
 
-activities = ['walk','sit']
-for person in db.collection("training").stream():
-    person = str(person.to_dict()['name'])
+
+# Define chunk size
+chunk_size = 2  # in seconds
+samples_per_second = 100  # 100Hz
+samples_per_chunk = chunk_size * samples_per_second
+
+# Trim parameters (first and last 3 seconds)
+startFrom, endTo = 300, 300  # 300 samples = 3 seconds
+
+# Load training data
+for person_doc in db.collection("training").stream():
+    person = person_doc.to_dict().get('name', '')
     if person not in includeOnly:
         continue
 
     for activity in activities:
-        for recording in db.collection("training").document(person).collection(activity).stream():
-            doc.append(recording.to_dict())
-            df.append(pd.DataFrame(recording.to_dict()['acceleration']))
+        activity_collection = db.collection("training").document(person).collection(activity)
+        for recording in activity_collection.stream():
+            recording_dict = recording.to_dict()
+            doc.append(recording_dict)
+            acceleration = recording_dict.get('acceleration', {})
+            df.append(pd.DataFrame(acceleration))
 
-for person in db.collection("testing").stream():
-    person = str(person.to_dict()['name'])
+# Load testing data
+for person_doc in db.collection("testing").stream():
+    person = person_doc.to_dict().get('name', '')
     if person not in includeOnly:
         continue
 
     for activity in activities:
-        for recording in db.collection("testing").document(person).collection(activity).stream():
-            testDoc.append(recording.to_dict())
-            testDf.append(pd.DataFrame(recording.to_dict()['acceleration']))
+        activity_collection = db.collection("testing").document(person).collection(activity)
+        for recording in activity_collection.stream():
+            recording_dict = recording.to_dict()
+            testDoc.append(recording_dict)
+            acceleration = recording_dict.get('acceleration', {})
+            testDf.append(pd.DataFrame(acceleration))
 
-
-startFrom, endTo = 300, 300
-# take data from first 3 seconds to last 3 seconds
-
+# Trim the data
 for i in range(len(df)):
     df[i] = df[i][startFrom:-endTo]
 
 for i in range(len(testDf)):
     testDf[i] = testDf[i][startFrom:-endTo]
 
+# Initialize data and labels
 training_data = []
 training_label = []
 testing_data = []
 testing_label = []
-chunk_size = 2
 
-training_activities_chunk_distribution = np.zeros(5)
-testing_activities_chunk_distribution = np.zeros(5)
+# Initialize distribution counters
+training_activities_chunk_distribution = np.zeros(len(activities))
+testing_activities_chunk_distribution = np.zeros(len(activities))
 
+# Process training data
 for i in range(len(df)):
-    # split each document into many 2-second chunks
-    for j in range(len(df[i]) // (chunk_size*100)):
-        x = list(df[i]["x"])[j*chunk_size*100:(j+1)*chunk_size*100]
-        y = list(df[i]['y'])[j*chunk_size*100:(j+1)*chunk_size*100]
-        z = list(df[i]['z'])[j*chunk_size*100:(j+1)*chunk_size*100]
+    num_chunks = len(df[i]) // samples_per_chunk
+    for j in range(num_chunks):
+        x = df[i]["x"].iloc[j*samples_per_chunk : (j+1)*samples_per_chunk].tolist()
+        y = df[i]['y'].iloc[j*samples_per_chunk : (j+1)*samples_per_chunk].tolist()
+        z = df[i]['z'].iloc[j*samples_per_chunk : (j+1)*samples_per_chunk].tolist()
         activity = doc[i]['activity']
-        activity = activities.index(activity)
+        if activity not in activities:
+            continue  # Skip unknown activities
+        activity_idx = activities.index(activity)
 
-        training_activities_chunk_distribution[activity] += 1
+        training_activities_chunk_distribution[activity_idx] += 1
         training_data.append([x, y, z])
-        training_label.append(activity)
+        training_label.append(activity_idx)
 
-
+# Process testing data
 for i in range(len(testDf)):
-    for j in range(len(testDf[i]) // (chunk_size*100)):
-        x = list(testDf[i]["x"])[j*chunk_size*100:(j+1)*chunk_size*100]
-        y = list(testDf[i]['y'])[j*chunk_size*100:(j+1)*chunk_size*100]
-        z = list(testDf[i]['z'])[j*chunk_size*100:(j+1)*chunk_size*100]
+    num_chunks = len(testDf[i]) // samples_per_chunk
+    for j in range(num_chunks):
+        x = testDf[i]["x"].iloc[j*samples_per_chunk : (j+1)*samples_per_chunk].tolist()
+        y = testDf[i]['y'].iloc[j*samples_per_chunk : (j+1)*samples_per_chunk].tolist()
+        z = testDf[i]['z'].iloc[j*samples_per_chunk : (j+1)*samples_per_chunk].tolist()
         activity = testDoc[i]['activity']
-        activity = activities.index(activity)
+        if activity not in activities:
+            continue  # Skip unknown activities
+        activity_idx = activities.index(activity)
 
-        testing_activities_chunk_distribution[activity] += 1
+        testing_activities_chunk_distribution[activity_idx] += 1
         testing_data.append([x, y, z])
-        testing_label.append(activity)
+        testing_label.append(activity_idx)
 
+# Display dataset information
 training_size = len(training_data)
 testing_size = len(testing_data)
-print(f"Total of {training_size} segments of 2-second data available for training: {training_activities_chunk_distribution}")
-print(f"Total of {testing_size} segments of 2-second data available for testing: {testing_activities_chunk_distribution}")
+print(f"Total of {training_size} segments of {chunk_size}-second data available for training: {training_activities_chunk_distribution}")
+print(f"Total of {testing_size} segments of {chunk_size}-second data available for testing: {testing_activities_chunk_distribution}")
 
-training_label = F.one_hot(torch.tensor(training_label, device='cpu').long(), num_classes=5).numpy()
-testing_label = F.one_hot(torch.tensor(testing_label, device='cpu').long(), num_classes=5).numpy()
+# One-hot encode labels
+training_label = F.one_hot(torch.tensor(training_label).long(), num_classes=num_classes).float()
+testing_label = F.one_hot(torch.tensor(testing_label).long(), num_classes=num_classes).float()
 
-training_label = torch.tensor(training_label).float()
-training_data = torch.tensor(training_data)
-testing_label = torch.tensor(testing_label).float()
-testing_data = torch.tensor(testing_data)
+# Convert data to tensors
+training_data = torch.tensor(training_data).float()
+testing_data = torch.tensor(testing_data).float()
+for i in range(len(training_data)):
 
+    print(training_label[i])
+    print(training_data[i][0].numpy())
+    print(training_data[i][1].numpy())
+    print(training_data[i][2].numpy())
+    print("/////")
 
 class NeuralNet(nn.Module):
     def __init__(self):
