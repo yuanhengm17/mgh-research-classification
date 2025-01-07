@@ -230,7 +230,7 @@ class CNN(nn.Module):
         super().__init__()
         self.conv1 = nn.Conv1d(3, 16, kernel_size=5, stride=1, padding=2)
         self.conv2 = nn.Conv1d(16, 32, kernel_size=5, stride=1, padding=2)
-        self.fc1 = nn.Linear(32 * 200, 128)
+        self.fc1 = nn.Linear(64 * (samples_per_chunk // 2) , 128)
         self.fc2 = nn.Linear(128, num_classes)
         self.pool = nn.MaxPool1d(2)
         self.relu = nn.ReLU()
