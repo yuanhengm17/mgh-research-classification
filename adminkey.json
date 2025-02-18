@@ -1,0 +1,4 @@
+import logging
+
+# Set up logging
+logging.basicConfig(filename='training_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
